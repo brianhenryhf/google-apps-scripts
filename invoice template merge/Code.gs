@@ -17,8 +17,14 @@ Note that the template file to use is specified in the source sheet itself.
 // some quirks and inconsistencies exist in these fields (invoice num vs id, file naming format vs invoiceid format) 
 // for historical reasons.
 
-// null replacement key means not a field involved in replacing.  'required' is required for row to be considered 
-// 'complete' - if all fields required fields are present in data, merge doc can be generated for that row.
+
+// Each value in the below is a spec for a field:
+// - dataGridIdx is 0-based column idx in data sheet.
+// - replacementKey is key in template, to be replaced by a val. null replacement key means not a field involved in 
+//   replacing.  
+// - required is requiredness in data sheet - if all required fields are present for a row, merge doc can be generated
+//   for that row
+// - valTransform is optional fxn to transform val before replacing in destination doc
 
 //TODO might be nice to also just have ctor to make a row obj from data that answers these questions...
 const DATA_KEY_MAP = {
@@ -116,27 +122,29 @@ const DATA_KEY_MAP = {
   }
 };
 
-
 /** This is the main entrypoint - edit a sheet, face the fiery wrath of this function. */
 const handleOnEdit = (evt) => {
   const ss = evt.source;
   const dataSheet = ss.getSheets()[0];
 
-  const contentRange = dataSheet.getDataRange();
+  processSheet(dataSheet);
+};
+
+const processSheet = (sheet) => {
+  const contentRange = sheet.getDataRange();
   // trim off the header row, so row 0 starts the data
   const dataRange = util.accordianAdjustRange(contentRange, { addRows: 1 });
   const data = dataRange.getValues();
 
   data.forEach((rowFields, idx) => {
-    if(!shouldCreate(rowFields)) return;
+    if (!shouldCreate(rowFields)) return;
     invoiceReplacements = buildReplacementMap(rowFields);
-    
+
+    // historical naming convention - not ideal that we reference specific fields here and custom transform.
+    // TODO a case could be made that this filename should be written to source sheet for recordkeeping
     const customerIdCamel = util.camelize(rowFields[DATA_KEY_MAP.customerId.dataGridIdx]);
-    
-    //ok so, here we might use a transform fxn built in to the field....TODO.  note the odd case of using the transformed val as more than replacement
-    // in dest doc.  (similar issue with customerIdCamel - we DON'T need that in replacements at all, but we want to use for invoice name.)
     const invoiceNumber = rowFields[DATA_KEY_MAP.invoiceNum.dataGridIdx]?.toString().padStart(2, '0');
-    const fileName = `${customerIdCamel}Invoice_${invoiceNumber}`; 
+    const fileName = `${customerIdCamel}Invoice_${invoiceNumber}`;
 
     createFilledDoc(rowFields[DATA_KEY_MAP.templateFileId.dataGridIdx], fileName, invoiceReplacements);
 
@@ -144,21 +152,12 @@ const handleOnEdit = (evt) => {
     const generatedCell = dataRange.offset(idx, DATA_KEY_MAP.generated.dataGridIdx, 1, 1);
     generatedCell.setValue('X')
   });
-};
-
-/** barring a better way to do this, this primes a test fxn that behaves like an actual handler of real sheet event.  */
-const TEST_SheetEditEvent = () => {
-  const testSheetId = PropertiesService.getScriptProperties().getProperty('TEST_SHEET_ID')
-  const evt = {
-    source: SpreadsheetApp.openById(testSheetId)
-  };
-
-  handleOnEdit(evt);
 }
+
 
 //val:  rowFields[DATA_KEY_MAP.customerId.dataGridIdx]
 // the idea here was less nasty way to reference fields - `row(rowFields).generated.dataGridIdx` instead of `rowFields[DATA_KEY_MAP.generated.dataGridIdx]`
-// eh, is that really much better?
+// eh, is that really much better?  oh, woudl most usages just be row(rowFields).generated to get specific value (refer to field specs for metadata)
 // const row = (rowFields) => {
 //   return Object.entries(DATA_KEY_MAP).reduce((agg, curr) => {
 //     agg[curr[0]] = agg[curr[1]  /*..xfer keys of sub objects to this object. explicit naming is fine...  prolly some easy es5 way to merge in fields? actually, this may be it already?  */]
@@ -203,6 +202,16 @@ const newDocFromTemplate = (templateFileId, newFileName) => {
   
   return DocumentApp.openById(newfileId);
 };
+
+/** barring a better way to do this, this primes a test fxn that behaves like an actual handler of real sheet event.  */
+const TEST_SheetEditEvent = () => {
+  const testSheetId = PropertiesService.getScriptProperties().getProperty('TEST_SHEET_ID')
+  const evt = {
+    source: SpreadsheetApp.openById(testSheetId)
+  };
+
+  handleOnEdit(evt);
+}
 
 
 //-- general utils
