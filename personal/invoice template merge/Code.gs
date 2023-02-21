@@ -1,18 +1,19 @@
 /**
-Script to merge a source Sheet's rows into a Doc, based on a pre-existing template doc and a simple templating language.  
-At present, this is specific to an invoicing use case (though it could perhaps be generalized in the future via Apps
-Scripts libraries and such).
+ * Script to merge a source Sheet's rows into a Doc, based on a pre-existing template doc and a simple templating language.  
+ * At present, this is specific to an invoicing use case (though it could perhaps be generalized in the future via Apps
+ * Scripts libraries and such).
+ * 
+ * The templating language is simple - replacement fields are enclosed like so: `{{REPLACE_THIS}}`. Note that existing
+ * formatting of field key in the doc will be kept (e.g, if you want a bold result, embolden the replacement key in the
+ * template).  
+ * 
+ * For fancy features like defaults for missing vals or calculated or interdependent values, functions in the source sheet
+ * are suggested. This _does_ allow for some content transforms for visual presentation (e.g., rounding, date and currency
+ * formats), as formatting of source values in the sheet for those purposes does not transfer to the output doc.
+ * 
+ * Note that the template file to use is specified in the source sheet itself.
+ */
 
-The templating language is simple - replacement fields are enclosed like so: `{{REPLACE_THIS}}`. Note that existing
-formatting of field key in the doc will be kept (e.g, if you want a bold result, embolden the replacement key in the
-template).  
-
-For fancy features like defaults for missing vals or calculated or interdependent values, functions in the source sheet
-are suggested. This _does_ allow for some content transforms for visual presentation (e.g., rounding, date and currency
-formats), as formatting of source values in the sheet for those purposes does not transfer to the output doc.
-
-Note that the template file to use is specified in the source sheet itself.
-*/
 
 // Each value in the below is a spec for a field in the data sheet:
 // - dataColIdx is 0-based column index in data sheet.
