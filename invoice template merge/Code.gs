@@ -15,7 +15,7 @@ Note that the template file to use is specified in the source sheet itself.
 */
 
 // Each value in the below is a spec for a field in the data sheet:
-// - dataGridIdx is 0-based column index in data sheet.
+// - dataColIdx is 0-based column index in data sheet.
 // - replacementKey is key in template, to be replaced by a val. null replacement key means not a field involved in 
 //   replacing.  
 // - required is requiredness in data sheet - if all required fields are present for a row, merge doc can be generated
@@ -23,93 +23,93 @@ Note that the template file to use is specified in the source sheet itself.
 // - valTransform is optional fxn to transform val before replacing in destination doc
 const FIELD_SPECS = {
   generated: { 
-    dataGridIdx: 0, 
+    dataColIdx: 0, 
     replacementKey: null, 
     required: false 
   },
   customerId: { 
-    dataGridIdx: 1, 
+    dataColIdx: 1, 
     replacementKey: null,
     required: true 
   },
   invoiceNum: { 
-    dataGridIdx: 2, 
+    dataColIdx: 2, 
     replacementKey: null, 
     required: true 
   },
   invoiceId: { 
-    dataGridIdx: 3, 
+    dataColIdx: 3, 
     replacementKey: 'INVC_ID', 
     required: true 
   },
   invoiceDate: { 
-    dataGridIdx: 4, 
+    dataColIdx: 4, 
     replacementKey: 'INVC_DT', 
     valTransform: (val) => val.toLocaleDateString(), 
     required: true 
   },
   workPeriodStart: { 
-    dataGridIdx: 5, 
+    dataColIdx: 5, 
     replacementKey: 'PERIOD_ST_INCL', 
     valTransform: (val) => val.toLocaleDateString(), 
     required: true 
   },
   workPeriodEnd: { 
-    dataGridIdx: 6, 
+    dataColIdx: 6, 
     replacementKey: 'PERIOD_END_INCL', 
     valTransform: (val) => val.toLocaleDateString(), 
     required: true 
   },
   totalHours: { 
-    dataGridIdx: 7, 
+    dataColIdx: 7, 
     replacementKey: 'TOT_HRS', 
     valTransform: (val) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 1 }).format(val), 
     required: true 
   },
   hourlyRate: { 
-    dataGridIdx: 8, 
+    dataColIdx: 8, 
     replacementKey: 'HRLY_RT', 
     valTransform: (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val), 
     required: true 
   },
   totalAmtDue: { 
-    dataGridIdx: 9, 
+    dataColIdx: 9, 
     replacementKey: 'TOT_DUE', 
     valTransform: (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val), 
     required: true 
   },
   templateFileId: { 
-    dataGridIdx: 10, 
+    dataColIdx: 10, 
     replacementKey: null, 
     required: true 
   },
   payerInfo: { 
-    dataGridIdx: 11, 
+    dataColIdx: 11, 
     replacementKey: 'PAYER_INFO', 
     required: true 
   },
   payeeInfo: { 
-    dataGridIdx: 12, 
+    dataColIdx: 12, 
     replacementKey: 'PAYEE_INFO', 
     required: true 
   },
   lineItemDesc: { 
-    dataGridIdx: 13, 
+    dataColIdx: 13, 
     replacementKey: 'LI_DESC', 
     required: true 
   },
   invoiceNote: { 
-    dataGridIdx: 14, 
+    dataColIdx: 14, 
     replacementKey: 'INV_NOTE', 
     required: false 
   },
   terms: { 
-    dataGridIdx: 15, 
+    dataColIdx: 15, 
     replacementKey: 'TERMS', 
     required: true 
   },
   dueDate: { 
-    dataGridIdx: 16, 
+    dataColIdx: 16, 
     replacementKey: 'DUE_DT', 
     valTransform: (val) => val.toLocaleDateString(), 
     required: true 
@@ -131,22 +131,22 @@ const processSheet = (sheet) => {
   const dataRange = util.accordianAdjustRange(contentRange, { addRows: 1 });
   const data = dataRange.getValues();
 
-  data.forEach((rowFields, idx) => {
-    const wrappedRowFields = wrapRowData(FIELD_SPECS, rowFields);
+  data.forEach((row, idx) => {
+    const rowFields = wrapRowData(FIELD_SPECS, row);
 
-    if (!shouldCreate(wrappedRowFields)) return;
-    invoiceReplacements = buildReplacementMap(wrappedRowFields);
+    if (!shouldCreate(rowFields)) return;
+    invoiceReplacements = buildReplacementMap(rowFields);
 
     // historical naming convention - not ideal that we reference specific fields here and custom transform.
     // TODO a case could be made that this filename should be written to source sheet for recordkeeping. Consider this.
-    const customerIdCamel = util.camelize(wrappedRowFields.valForName('customerId'));
-    const invoiceNumber = wrappedRowFields.valForName('invoiceNum')?.toString().padStart(2, '0');
+    const customerIdCamel = util.camelize(rowFields.valForName('customerId'));
+    const invoiceNumber = rowFields.valForName('invoiceNum')?.toString().padStart(2, '0');
     const fileName = `${customerIdCamel}Invoice_${invoiceNumber}`;
 
-    createFilledDoc(wrappedRowFields.valForName('templateFileId'), fileName, invoiceReplacements);
+    createFilledDoc(rowFields.valForName('templateFileId'), fileName, invoiceReplacements);
 
     //mark it done - using a marker column instead of checking for row count changes lets us re-generate from rows for testing or whatever reason we want.
-    const generatedCell = dataRange.offset(idx, FIELD_SPECS.generated.dataGridIdx, 1, 1);
+    const generatedCell = dataRange.offset(idx, FIELD_SPECS.generated.dataColIdx, 1, 1);
     generatedCell.setValue('X')
   });
 }
@@ -158,7 +158,7 @@ const wrapRowData = (fieldSpecs, rowFields) => {
       return rowFields[idx];
     },
     valForName: function(fieldName) {
-      return this.valForIndex(fieldSpecs[fieldName].dataGridIdx);
+      return this.valForIndex(fieldSpecs[fieldName].dataColIdx);
     }
   }
 }
@@ -167,22 +167,22 @@ const wrapRowData = (fieldSpecs, rowFields) => {
  * For a given row's array of columns, this does any needed transforms to produce presentable result in map of 
  * replacement key to display val. 
  */
-const buildReplacementMap = (wrappedRowFields) => {
+const buildReplacementMap = (rowFields) => {
   const identityFn = (x) => { return x; };
 
   // loop the formal field specs and collect(/transform, if spec'd) this row's actual field vals as appropriate
   return Object.values(FIELD_SPECS).reduce((agg, curr) => {
     if (curr.replacementKey === null) return agg;
-    agg[curr.replacementKey] = (curr.valTransform || identityFn)(wrappedRowFields.valForIndex(curr.dataGridIdx));
+    agg[curr.replacementKey] = (curr.valTransform || identityFn)(rowFields.valForIndex(curr.dataColIdx));
     return agg;
   }, {});
 }
 
 /** Check for complete row (all required fields are present) that's not had generation done before */
-const shouldCreate = (wrappedRowFields) => {
-  if (util.isNonBlank(wrappedRowFields.valForName('generated'))) return false;
+const shouldCreate = (rowFields) => {
+  if (util.isNonBlank(rowFields.valForName('generated'))) return false;
   return Object.values(FIELD_SPECS).every(
-    (fieldSpec) => !fieldSpec.required || util.isNonBlank(wrappedRowFields.valForIndex(fieldSpec.dataGridIdx))
+    (fieldSpec) => !fieldSpec.required || util.isNonBlank(rowFields.valForIndex(fieldSpec.dataColIdx))
   );
 }
 
