@@ -14,19 +14,13 @@ formats), as formatting of source values in the sheet for those purposes does no
 Note that the template file to use is specified in the source sheet itself.
 */
 
-// some quirks and inconsistencies exist in these fields (invoice num vs id, file naming format vs invoiceid format) 
-// for historical reasons.
-
-
 // Each value in the below is a spec for a field in the data sheet:
-// - dataGridIdx is 0-based column idx in data sheet.
+// - dataGridIdx is 0-based column index in data sheet.
 // - replacementKey is key in template, to be replaced by a val. null replacement key means not a field involved in 
 //   replacing.  
 // - required is requiredness in data sheet - if all required fields are present for a row, merge doc can be generated
 //   for that row
 // - valTransform is optional fxn to transform val before replacing in destination doc
-
-//TODO might be nice to also just have ctor to make a row obj from data that answers these questions...
 const FIELD_SPECS = {
   generated: { 
     dataGridIdx: 0, 
@@ -122,7 +116,7 @@ const FIELD_SPECS = {
   }
 };
 
-/** This is the main entrypoint - edit a sheet, face the fiery wrath of this function. */
+/** Trigger handler for this script. */
 const handleOnEdit = (evt) => {
   const ss = evt.source;
   const dataSheet = ss.getSheets()[0];
@@ -130,6 +124,7 @@ const handleOnEdit = (evt) => {
   processSheet(dataSheet);
 };
 
+/** Main workhorse of script */
 const processSheet = (sheet) => {
   const contentRange = sheet.getDataRange();
   // trim off the header row, so row 0 starts the data
@@ -137,16 +132,18 @@ const processSheet = (sheet) => {
   const data = dataRange.getValues();
 
   data.forEach((rowFields, idx) => {
-    if (!shouldCreate(rowFields)) return;
-    invoiceReplacements = buildReplacementMap(rowFields);
+    const wrappedRowFields = wrapRowData(FIELD_SPECS, rowFields);
+
+    if (!shouldCreate(wrappedRowFields)) return;
+    invoiceReplacements = buildReplacementMap(wrappedRowFields);
 
     // historical naming convention - not ideal that we reference specific fields here and custom transform.
-    // TODO a case could be made that this filename should be written to source sheet for recordkeeping
-    const customerIdCamel = util.camelize(rowVal(rowFields, 'customerId'));
-    const invoiceNumber = rowVal(rowFields, 'invoiceNum')?.toString().padStart(2, '0');
+    // TODO a case could be made that this filename should be written to source sheet for recordkeeping. Consider this.
+    const customerIdCamel = util.camelize(wrappedRowFields.valForName('customerId'));
+    const invoiceNumber = wrappedRowFields.valForName('invoiceNum')?.toString().padStart(2, '0');
     const fileName = `${customerIdCamel}Invoice_${invoiceNumber}`;
 
-    createFilledDoc(rowVal(rowFields, 'templateFileId'), fileName, invoiceReplacements);
+    createFilledDoc(wrappedRowFields.valForName('templateFileId'), fileName, invoiceReplacements);
 
     //mark it done - using a marker column instead of checking for row count changes lets us re-generate from rows for testing or whatever reason we want.
     const generatedCell = dataRange.offset(idx, FIELD_SPECS.generated.dataGridIdx, 1, 1);
@@ -154,40 +151,39 @@ const processSheet = (sheet) => {
   });
 }
 
-const rowVal = (rowFields, fieldName) => rowFields[FIELD_SPECS[fieldName].dataGridIdx];
-
-
-
-//val:  rowFields[FIELD_SPECS.customerId.dataGridIdx]
-// the idea here was less nasty way to reference fields - `row(rowFields).generated.dataGridIdx` instead of `rowFields[FIELD_SPECS.generated.dataGridIdx]`
-// eh, is that really much better?  oh, woudl most usages just be row(rowFields).generated to get specific value (refer to field specs for metadata)
-//  maybe we want the fieldname and just the actual value - any other meta info we get from the specs.  can we return an obj with #val and #spec?
-//  so here, agg[curr[0]] = {val: <thing from row>, spec: agg[curr[1]}  ?
-// const row = (rowFields) => {
-//   return Object.entries(FIELD_SPECS).reduce((agg, curr) => {
-//     agg[curr[0]] = agg[curr[1]  /*..xfer keys of sub objects to this object. explicit naming is fine...  prolly some easy es5 way to merge in fields? actually, this may be it already?  */]
-//   }, {})
-// }
+/** Wrapper to make it a bit more clean/grokkable to access field data by field name or data index */
+const wrapRowData = (fieldSpecs, rowFields) => {
+  return {
+    valForIndex: function(idx) {
+      return rowFields[idx];
+    },
+    valForName: function(fieldName) {
+      return this.valForIndex(fieldSpecs[fieldName].dataGridIdx);
+    }
+  }
+}
 
 /**
  * For a given row's array of columns, this does any needed transforms to produce presentable result in map of 
  * replacement key to display val. 
  */
-const buildReplacementMap = (rowFields) => {
-  const identityFn = (_) => {};
+const buildReplacementMap = (wrappedRowFields) => {
+  const identityFn = (x) => { return x; };
 
   // loop the formal field specs and collect(/transform, if spec'd) this row's actual field vals as appropriate
   return Object.values(FIELD_SPECS).reduce((agg, curr) => {
     if (curr.replacementKey === null) return agg;
-    agg[curr.replacementKey] = (curr.valTransform || identityFn)(rowFields[curr.dataGridIdx]);
+    agg[curr.replacementKey] = (curr.valTransform || identityFn)(wrappedRowFields.valForIndex(curr.dataGridIdx));
     return agg;
   }, {});
 }
 
 /** Check for complete row (all required fields are present) that's not had generation done before */
-const shouldCreate = (rowFields) => {
-  if (util.isNonBlank(rowVal(rowFields, 'generated'))) return false;
-  return Object.values(FIELD_SPECS).every((fieldSpec) => !fieldSpec.required || util.isNonBlank(rowFields[fieldSpec.dataGridIdx]));
+const shouldCreate = (wrappedRowFields) => {
+  if (util.isNonBlank(wrappedRowFields.valForName('generated'))) return false;
+  return Object.values(FIELD_SPECS).every(
+    (fieldSpec) => !fieldSpec.required || util.isNonBlank(wrappedRowFields.valForIndex(fieldSpec.dataGridIdx))
+  );
 }
 
 const createFilledDoc = (templateFileId, newDocName, replacementMap) => {
@@ -198,7 +194,7 @@ const createFilledDoc = (templateFileId, newDocName, replacementMap) => {
 };
 
 const replaceKeys = (docBody, replacementMap) => {
-  // replaceText will replace all instances down the doc tree, which is fine for current purposes
+  // #replaceText will replace all instances down the doc tree, which is fine for current purposes
   Object.entries(replacementMap).forEach(([key, val]) => {
     docBody.replaceText(`\{\{${key}\}\}`, val);
   })
@@ -206,15 +202,19 @@ const replaceKeys = (docBody, replacementMap) => {
 
 /** Create and return a new doc to fill in, based on template */
 const newDocFromTemplate = (templateFileId, newFileName) => {
-  // Copy lands in same folder as template file. If file by name already exists, another of same name is created anyway.
+  // Copy lands in same folder as template file. If file by name already exists, another of same name is created.
   const file = DriveApp.getFileById(templateFileId).makeCopy(newFileName);  //yay, same folder (well, future state might be a subfolder for the company id?).  
   const newfileId = file.getId();
   
   return DocumentApp.openById(newfileId);
 };
 
-/** barring a better way to do this, this primes a test fxn that behaves like an actual handler of real sheet event.  */
+/** 
+ * Barring a better way to do this, this primes a test fxn that behaves like an actual handler of real sheet event. 
+ * Allows for quick iterating when debugging.
+ */
 const TEST_SheetEditEvent = () => {
+  // set this property up for script beforehand, with spreadsheet file ID
   const testSheetId = PropertiesService.getScriptProperties().getProperty('TEST_SHEET_ID')
   const evt = {
     source: SpreadsheetApp.openById(testSheetId)
