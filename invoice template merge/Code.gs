@@ -18,7 +18,7 @@ Note that the template file to use is specified in the source sheet itself.
 // for historical reasons.
 
 
-// Each value in the below is a spec for a field:
+// Each value in the below is a spec for a field in the data sheet:
 // - dataGridIdx is 0-based column idx in data sheet.
 // - replacementKey is key in template, to be replaced by a val. null replacement key means not a field involved in 
 //   replacing.  
@@ -27,7 +27,7 @@ Note that the template file to use is specified in the source sheet itself.
 // - valTransform is optional fxn to transform val before replacing in destination doc
 
 //TODO might be nice to also just have ctor to make a row obj from data that answers these questions...
-const DATA_KEY_MAP = {
+const FIELD_SPECS = {
   generated: { 
     dataGridIdx: 0, 
     replacementKey: null, 
@@ -142,42 +142,52 @@ const processSheet = (sheet) => {
 
     // historical naming convention - not ideal that we reference specific fields here and custom transform.
     // TODO a case could be made that this filename should be written to source sheet for recordkeeping
-    const customerIdCamel = util.camelize(rowFields[DATA_KEY_MAP.customerId.dataGridIdx]);
-    const invoiceNumber = rowFields[DATA_KEY_MAP.invoiceNum.dataGridIdx]?.toString().padStart(2, '0');
+    const customerIdCamel = util.camelize(rowVal(rowFields, 'customerId'));
+    const invoiceNumber = rowVal(rowFields, 'invoiceNum')?.toString().padStart(2, '0');
     const fileName = `${customerIdCamel}Invoice_${invoiceNumber}`;
 
-    createFilledDoc(rowFields[DATA_KEY_MAP.templateFileId.dataGridIdx], fileName, invoiceReplacements);
+    createFilledDoc(rowVal(rowFields, 'templateFileId'), fileName, invoiceReplacements);
 
     //mark it done - using a marker column instead of checking for row count changes lets us re-generate from rows for testing or whatever reason we want.
-    const generatedCell = dataRange.offset(idx, DATA_KEY_MAP.generated.dataGridIdx, 1, 1);
+    const generatedCell = dataRange.offset(idx, FIELD_SPECS.generated.dataGridIdx, 1, 1);
     generatedCell.setValue('X')
   });
 }
 
+const rowVal = (rowFields, fieldName) => rowFields[FIELD_SPECS[fieldName].dataGridIdx];
 
-//val:  rowFields[DATA_KEY_MAP.customerId.dataGridIdx]
-// the idea here was less nasty way to reference fields - `row(rowFields).generated.dataGridIdx` instead of `rowFields[DATA_KEY_MAP.generated.dataGridIdx]`
+
+
+//val:  rowFields[FIELD_SPECS.customerId.dataGridIdx]
+// the idea here was less nasty way to reference fields - `row(rowFields).generated.dataGridIdx` instead of `rowFields[FIELD_SPECS.generated.dataGridIdx]`
 // eh, is that really much better?  oh, woudl most usages just be row(rowFields).generated to get specific value (refer to field specs for metadata)
+//  maybe we want the fieldname and just the actual value - any other meta info we get from the specs.  can we return an obj with #val and #spec?
+//  so here, agg[curr[0]] = {val: <thing from row>, spec: agg[curr[1]}  ?
 // const row = (rowFields) => {
-//   return Object.entries(DATA_KEY_MAP).reduce((agg, curr) => {
+//   return Object.entries(FIELD_SPECS).reduce((agg, curr) => {
 //     agg[curr[0]] = agg[curr[1]  /*..xfer keys of sub objects to this object. explicit naming is fine...  prolly some easy es5 way to merge in fields? actually, this may be it already?  */]
 //   }, {})
 // }
 
-/** For a given row's array of columns, this does any needed transforms to produce presentable result */
+/**
+ * For a given row's array of columns, this does any needed transforms to produce presentable result in map of 
+ * replacement key to display val. 
+ */
 const buildReplacementMap = (rowFields) => {
-  // loop the formal field specs and collect(/transform) this row's actual field vals as appropriate
-  return Object.values(DATA_KEY_MAP).reduce((agg, curr) => {
+  const identityFn = (_) => {};
+
+  // loop the formal field specs and collect(/transform, if spec'd) this row's actual field vals as appropriate
+  return Object.values(FIELD_SPECS).reduce((agg, curr) => {
     if (curr.replacementKey === null) return agg;
-    agg[curr.replacementKey] = curr.valTransform ? curr.valTransform(rowFields[curr.dataGridIdx]) : rowFields[curr.dataGridIdx];
+    agg[curr.replacementKey] = (curr.valTransform || identityFn)(rowFields[curr.dataGridIdx]);
     return agg;
   }, {});
 }
 
 /** Check for complete row (all required fields are present) that's not had generation done before */
 const shouldCreate = (rowFields) => {
-  if (util.isNonBlank(rowFields[DATA_KEY_MAP.generated.dataGridIdx])) return false;
-  return Object.values(DATA_KEY_MAP).every((spec) => !spec.required || util.isNonBlank(rowFields[spec.dataGridIdx]));
+  if (util.isNonBlank(rowVal(rowFields, 'generated'))) return false;
+  return Object.values(FIELD_SPECS).every((fieldSpec) => !fieldSpec.required || util.isNonBlank(rowFields[fieldSpec.dataGridIdx]));
 }
 
 const createFilledDoc = (templateFileId, newDocName, replacementMap) => {
