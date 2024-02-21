@@ -56,31 +56,40 @@ const __ = (() => { //internals
     killWithLabelBeforeDate: function (killLabel, killDate) {
       this.debug(`- killing within label "${killLabel}"`);
       const targetLabel = GmailApp.getUserLabelByName(killLabel);
+
+      this.evalThreadsForLabel(targetLabel, (thread) => {
+        this.debug(`thread subj: ${thread.getFirstMessageSubject()}`);
+        if(thread.getLastMessageDate() < killDate) {
+          return this.deleteThread(thread);
+        }
+        return false;
+      });
+    },
+
+    //Page through threads for label and exec threadFn on each. threadFn should return whether it actually deleted a thread (and thus may
+    //affect where subsequent fetches should start).
+    evalThreadsForLabel: function (labelObj, threadFn) {
       let page,
           threadFetchStartIdx = 0;
 
       //Can't get total thread count, so best we can do is know we didn't get less than the max last iteration.
       //Also, checking for page nullness, which will be true first time through only.
       while (!page || page.length == MAX_THREADS_PER_PAGE) { 
-        page = targetLabel.getThreads(threadFetchStartIdx, MAX_THREADS_PER_PAGE);
+        page = labelObj.getThreads(threadFetchStartIdx, MAX_THREADS_PER_PAGE);
         this.debug(`page.length: ${page.length}`);
 
         //First thread fetch attempt may result in none; previous iteration that may have gotten the EXACTLY MAX_THREAD_FETCH remaining may 
         //also now result in none.
         if(page.length > 0) {
           for(const thread of page) {
-            let threadActuallyDeleted = false;
-            
-            this.debug(`thread subj: ${thread.getFirstMessageSubject()}`);
-            if(thread.getLastMessageDate() < killDate) {
-              threadActuallyDeleted = this.deleteThread(thread);
-            }
-            //If we actually deleted, threads shift left in next fetch. If didn't (not old enough, or just stubbing), adjust start right to avoid
-            // re-processing same threads.
+            const threadActuallyDeleted = threadFn(thread);
+
+            //If we actually deleted, threads shift left in next fetch. If didn't (not old enough, or just stubbing), adjust next start right 
+            //to avoid re-processing same threads.
             if(!threadActuallyDeleted) threadFetchStartIdx++;
           }
         }
-      }
+      }      
     },
 
     //Returns whether thread was actually deleted (for fetch start-shifting purposes)
